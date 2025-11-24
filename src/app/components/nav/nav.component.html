@@ -2,7 +2,7 @@
 <nav class="navbar navbar-expand-lg bg-primary" data-bs-theme="dark">
     <div class="container-fluid">
         <a class="navbar-brand" routerLink="/">
-            <img src="GourmAI_Logo.png" alt="GourmAI Logo" width="55" height="55" class="d-inline-block align-text-top me-2" />
+            <img src="GourmAI_Logo.png" alt="GourmAI Logo" width="75" height="75" class="d-inline-block align-text-top me-2" />
         </a>
     
 
@@ -18,6 +18,9 @@
                 </li>
                 <li class="nav-item" *ngIf="isAdmin">
                         <a class="nav-link" routerLink="/restaurant-approvals">Pending Restaurants</a>
+                </li>
+                <li class="nav-item" *ngIf="isAdmin">
+                        <a class="nav-link" routerLink="/courier-approvals">Pending Couriers</a>
                 </li>
                 <li class="nav-item" *ngIf="isRestaurant && !isAdmin">
                     <a class="nav-link" routerLink="/restaurant-add">Submit Restaurant</a>

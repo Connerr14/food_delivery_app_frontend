@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { RestuarantService } from '../../services/restuarant.service';
 import { CartService } from '../../services/cart.service';
 import { ToastService } from '../../services/toast.service';
@@ -25,6 +25,8 @@ export class MenuComponent {
   selectedImage?: File;
   selectedCategory = 'All Items';
   categories: string[] = ['All Items'];
+
+  userId = 0;
   
   // Menu item management
   showAddForm = false;
@@ -36,6 +38,20 @@ export class MenuComponent {
     description: ''
   };
 
+  ratingPayload: any = null
+
+
+  stars = [1, 2, 3, 4, 5];  // 5 stars
+  rating = 0;              // current rating
+  hovered = 0;               // star currently hovered
+
+  hasOrdered: boolean = false;
+
+  hasRatedPrev: boolean = false;
+
+  tellUserTheyHaveAlreadyReviewed: boolean = false;
+
+
 
   constructor(
     private api: RestuarantService, 
@@ -44,7 +60,148 @@ export class MenuComponent {
     private toast: ToastService
   ){ }
 
+  tellUserTheyHaveAlreadyReviewedFunction () {
+    this.tellUserTheyHaveAlreadyReviewed = true;
+  }
+  
+  setRating(value: number) {
+  console.log("In set Rating")
+  console.log(value);
+  this.rating = value;     // set rating when clicked
+  console.log("This Rating: " + this.rating);
+
+  // Get the userId from local storage
+  const userString = localStorage.getItem('user');
+
+   if (userString) {
+      const user = JSON.parse(userString);
+
+      console.log("User object " + userString);
+
+      const userId = user.user_id;
+
+      this.userId = userId;
+   }
+
+  // Create the payload needed to use the addRating function
+  this.ratingPayload = 
+  {
+    restaurant_id: Number(this.restaurantId),
+    user_id: this.userId,
+    rating: this.rating
+  }
+
+  console.log("Rating payload: " + this.ratingPayload.rating);
+
+  console.log("Calling service function");
+
+  const payloadForRestaurantTable = {
+    restaurant_id: this.restaurantId,
+    rating: this.rating
+  }
+
+  // Call the service method (must be ran in this order to ensure restaurant review integrity)
+  this.api.addRating(this.ratingPayload).subscribe
+  ({
+    next: (res: any)=>
+    {
+      this.api.updateRestaurantRatings(payloadForRestaurantTable).subscribe
+      ({
+        next: (res: any) => {
+          console.log(res.restaurant);
+          console.log("Rating logged properly")
+        }, 
+        error: (err) => 
+        {
+          console.log(this.rating)
+          console.log("Error adding review to restaurant table" + err);
+        }// End of first error
+      })// End of nested call
+    }, error: (err) => 
+    {
+      console.log("Error adding review to ratings table " + err);
+    }
+  })
+
+  }// End of setRating Function
+  
+  // Function to check if the user has ordered from the restaurant before
+hasUserOrderedFromRestaurant() {
+  console.log("In hasUserOrderedFromRestaurant function");
+
+  const userString = localStorage.getItem('user');
+
+  if (userString) {
+    const user = JSON.parse(userString);
+    this.userId = user.user_id;
+    console.log("User ID: " + this.userId);
+  }
+
+  console.log("Restaurant ID: " + this.restaurantId);
+
+  this.api.getOrderHistoryByUser(Number(this.userId)).subscribe({
+    next: (orders: any) => {
+
+      const match = orders.some((order: any) =>
+        order.Restaurant.restaurant_id === Number(this.restaurantId)
+      );
+
+      this.hasOrdered = match;
+
+      if (match) {
+        console.log("User has ordered from this restaurant before.");
+      } else {
+        console.log("User has NOT ordered from this restaurant before.");
+      }
+    },
+    error: (err) => {
+      console.error('Error fetching order history:', err);
+    }
+  });
+}
+
+  // A function that checks if the user has reviewed the restaurant before
+checkIfUserHasReviewed(): void {
+  console.log('Checking if the user has reviewed the restaurant before....');
+
+  const userString = localStorage.getItem('user');
+  if (userString) {
+    const user = JSON.parse(userString);
+    this.userId = user.user_id;
+    console.log('User ID: ' + this.userId);
+  } else {
+    // no user -> ensure flag is false and return
+    this.hasRatedPrev = false;
+    return;
+  }
+
+  this.api.getRatingsByUserId(this.userId).subscribe({
+    next: (userRatings: any) => {
+      console.log('Total Ratings: ' + userRatings.length);
+
+      // Check if any rating matches this.restaurantId
+      const match = userRatings.some((r: { restaurant_id: Number; }) => r.restaurant_id === Number(this.restaurantId));
+
+      if (match) {
+        const found = userRatings.find((r: { restaurant_id: Number; }) => r.restaurant_id === Number(this.restaurantId));
+        this.rating = found?.rating;
+      }
+      this.hasRatedPrev = match;
+    },
+    error: (err) => {
+      console.error('Error getting ratings', err);
+      this.hasRatedPrev = false;
+    }
+  });
+}
+
+
     ngOnInit(): void {
+
+      this.checkIfUserHasReviewed();
+
+      // this.rating = 5;
+     console.log(this.rating);
     try {
       const userStr = localStorage.getItem('user');
       const u = userStr ? JSON.parse(userStr) : null;
@@ -57,6 +214,7 @@ export class MenuComponent {
       this.loadRestaurant(this.restaurantId);
       this.loadMenu(Number(this.restaurantId));
     }
+    this.hasUserOrderedFromRestaurant();
   }
 
   /**

@@ -2,6 +2,9 @@ import { Component, OnInit, CUSTOM_ELEMENTS_SCHEMA, ViewChild, ElementRef, After
 import { CommonModule } from '@angular/common';
 import { CourierService } from '../../services/courier.service';
 import { ToastService } from '../../services/toast.service';
+import { environment } from '../../../environments/environment';
+
+
 
 @Component({
   selector: 'app-courier',
@@ -17,15 +20,19 @@ export class CourierComponent implements OnInit {
   geocoder!: google.maps.Geocoder;
   marker?: google.maps.Marker;
   activeTab: string = 'available-orders';
+  currentOrderId: Number | null = null;
   
   // Courier data
   courierId: number | null = null;
   userId: number | null = null;
   isAvailable: boolean = false;
+  isApproved: boolean = false;
 
   currentOrderAddress: string = '';
   currentLat: number = 0;
   currentLng: number = 0;
+
+
 
   
   // Orders
@@ -43,20 +50,20 @@ export class CourierComponent implements OnInit {
     private toast: ToastService
   ) {}
 
-  setMap() {
-    console.log('Setting up map...');
 
-    if (this.map && this.currentOrder?.order_address) {
-      this.moveToAddress(this.currentOrder.order_address);
-    }
-  }
-
-   moveToAddress(address: string, zoom = 15) {
+   moveToAddress(address: string, zoom = 15): void {
     console.log('Geocoding address:', address);
 
   
     if (!this.geocoder) {
       this.geocoder = new google.maps.Geocoder();
+    }
+
+    // Wait for the gmap element to load in, then recall the function
+    if (!this.map)
+    {
+      console.log("waiting for the map to load in the dom");
+      setTimeout(this.moveToAddress, 200)
     }
     console.log('Geocoder is ready:', this.geocoder);
 
@@ -75,7 +82,14 @@ export class CourierComponent implements OnInit {
 
 
   ngOnInit(): void {
-    // this.setMap();
+
+    // Load in the google maps API key
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${environment.GOOGLE_MAPS_KEY}&libraries=maps`;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    console.log("Key: " + environment.GOOGLE_MAPS_KEY);
 
     // Get courier info from localStorage
     try {
@@ -118,12 +132,26 @@ export class CourierComponent implements OnInit {
       } else {
         // Regular courier flow
         this.courierService.getCourierByUserId(this.userId).subscribe({
-          next: (res: any) => {
-            const courier = res.find((c: any) => c.user_id === this.userId);
+          next: (courier: any) => {
             if (courier) {
               this.courierId = courier.courier_id;
               this.isAvailable = courier.isActive;
-              this.loadAllData();
+              // Treat null/undefined as false (not approved)
+              this.isApproved = courier.isApproved === true;
+              
+              console.log('Courier profile loaded:', {
+                courier_id: this.courierId,
+                isActive: this.isAvailable,
+                isApproved: this.isApproved,
+                rawIsApproved: courier.isApproved
+              });
+              
+              // Only load data if courier is approved
+              if (this.isApproved) {
+                this.loadAllData();
+              } else {
+                this.toast.warning('Your courier account is pending approval');
+              }
             } else {
               this.toast.error('Courier profile not found');
             }
@@ -162,13 +190,16 @@ export class CourierComponent implements OnInit {
   loadCurrentOrder(): void {
     if (!this.courierId) return;
     this.loadingCurrent = true;
+
+    // Not returning the correct details
     this.courierService.getCurrentOrder(this.courierId).subscribe({
       next: (res: any) => {
         this.currentOrder = res.order;
         this.loadingCurrent = false;
-        console.log('Current order loaded:', this.currentOrder);
+        console.log('Current order loaded: (new)', this.currentOrder);
         this.currentOrderAddress = this.currentOrder?.customer?.address || '';
         console.log('Current Order Address:', this.currentOrderAddress);
+        this.moveToAddress(this.currentOrderAddress)
 
       // if (this.currentOrder?.order_address && this.map) {
       //   console.log('Moving to address:', this.currentOrder.order_address);
@@ -197,16 +228,23 @@ export class CourierComponent implements OnInit {
       }
     });
   }
+  
 
   acceptOrder(orderId: number): void {
     if (!this.courierId) return;
+    if (!this.isApproved) {
+      this.toast.error('Your courier account is pending approval');
+      return;
+    }
     
     this.courierService.acceptOrder(orderId, this.courierId).subscribe({
       next: (res: any) => {
         this.toast.success('Order accepted!');
         this.loadAllData();
         this.activeTab = 'current-order';
-        this.moveToAddress(this.currentOrder.order_address);
+        // Call map function
+        this.moveToAddress(this.currentOrderAddress);
+        this.currentOrderId = orderId;
       },
       error: (err) => {
         console.error('Failed to accept order', err);
@@ -217,6 +255,10 @@ export class CourierComponent implements OnInit {
 
   markAsPickedUp(): void {
     if (!this.currentOrder || !this.courierId) return;
+    if (!this.isApproved) {
+      this.toast.error('Your courier account is pending approval');
+      return;
+    }
     
     this.courierService.updateOrderStatus(this.currentOrder.order_id, 'Picked Up', this.courierId).subscribe({
       next: (res: any) => {
@@ -232,6 +274,10 @@ export class CourierComponent implements OnInit {
 
   markAsDelivered(): void {
     if (!this.currentOrder || !this.courierId) return;
+    if (!this.isApproved) {
+      this.toast.error('Your courier account is pending approval');
+      return;
+    }
     
     this.courierService.updateOrderStatus(this.currentOrder.order_id, 'Delivered', this.courierId).subscribe({
       next: (res: any) => {
@@ -248,6 +294,10 @@ export class CourierComponent implements OnInit {
 
   toggleAvailability(): void {
     if (!this.courierId) return;
+    if (!this.isApproved) {
+      this.toast.error('Your courier account is pending approval');
+      return;
+    }
     
     const newStatus = !this.isAvailable;
     this.courierService.toggleAvailability(this.courierId, newStatus).subscribe({
@@ -303,7 +353,6 @@ setTab(tab: string) {
 
   if (tab === 'current-order') {
     console.log('Switching to current-order tab');
-    this.loadCurrentOrder();
       console.log('In setTab timeout');
 
         if (this.currentOrderAddress) {
